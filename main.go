@@ -34,13 +34,15 @@ const (
 	httpPort                   = 9279
 	postLayerURI               = "/v1/layers"
 	getLayerFeaturesURI        = "/v1/layers/%s?vulnerabilities"
+	reportPath                 = "/tmp/result/"
 )
 
 type vulnerabilityInfo struct {
-	vulnerability string
-	namespace     string
-	severity      string
+	Vulnerability string
+	Namespace     string
+	Severity      string
 	Description   string
+	Link          string
 }
 
 type acceptedVulnerability struct {
@@ -54,15 +56,20 @@ type vulnerabilitiesWhitelist struct {
 }
 
 type vulnerabilityReport struct {
-	date time.Time `json:"date"`
-	image string `json:"image"`
-	vulnerabilities []vulnerabilityInfo `json:"vulnerabilities"`
+	Date            time.Time           `json:"date"`
+	Image           string              `json:"image"`
+	Vulnerabilities []vulnerabilityInfo `json:"vulnerabilities"`
 }
+
+var scanOk bool = true
 
 func main() {
 	flag.Parse()
 	start(flag.Args()[0], parseWhitelist(flag.Args()[1]), flag.Args()[2], flag.Args()[3])
-	os.Exit(success)
+	if scanOk {
+		os.Exit(success)
+	}
+	os.Exit(1)
 }
 
 func parseWhitelist(whitelistFile string) vulnerabilitiesWhitelist {
@@ -145,7 +152,7 @@ func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityIn
 	imageVulnerabilities := getImageVulnerabilities(imageName, whitelist.Images)
 
 	for i := 0; i < len(vulnerabilities); i++ {
-		vulnerability := vulnerabilities[i].vulnerability
+		vulnerability := vulnerabilities[i].Vulnerability
 		vulnerable := true
 
 		if _, exists := whitelist.GeneralWhitelist[vulnerability]; exists {
@@ -159,10 +166,11 @@ func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityIn
 		if vulnerable {
 			unapproved = append(unapproved, vulnerability)
 			unapprovedVulnerabilities = append(unapprovedVulnerabilities, vulnerabilities[i])
+			scanOk = false
 		}
 	}
 	if len(unapprovedVulnerabilities) > 0 {
-		return unapprovedVulnerabilities,fmt.Errorf("%s", unapproved)
+		return unapprovedVulnerabilities, fmt.Errorf("%s", unapproved)
 	}
 	return nil, fmt.Errorf("%s", "No vulnerabilities found")
 }
@@ -342,7 +350,7 @@ func getVulnerabilities(clairURL string, layerIds []string) ([]vulnerabilityInfo
 	for _, feature := range rawVulnerabilities.Features {
 		if len(feature.Vulnerabilities) > 0 {
 			for _, vulnerability := range feature.Vulnerabilities {
-				vulnerability := vulnerabilityInfo{vulnerability.Name, vulnerability.NamespaceName, vulnerability.Severity, vulnerability.Description}
+				vulnerability := vulnerabilityInfo{vulnerability.Name, vulnerability.NamespaceName, vulnerability.Severity, vulnerability.Description, vulnerability.Link}
 				vulnerabilities = append(vulnerabilities, vulnerability)
 			}
 		}
@@ -374,15 +382,19 @@ func fetchLayerVulnerabilities(clairURL string, layerID string) (v1.Layer, error
 }
 
 func printVulnerabilityReport(vulnerabilities []vulnerabilityInfo) error {
+
 	log.Println("Printing JSON report")
 	date := time.Now()
-	report := vulnerabilityReport{
-		date: date,
-		image: flag.Args()[0],
-		vulnerabilities: vulnerabilities,
+	report := &vulnerabilityReport{
+		Date:            date,
+		Image:           flag.Args()[0],
+		Vulnerabilities: vulnerabilities,
 	}
-	b,_ := json.Marshal(report)
-	s := string(b)
-	fmt.Println(s)
+	b, _ := json.MarshalIndent(report, "", "    ")
+	path := fmt.Sprintf("%s/%s.json", reportPath, "clair-report")
+	err := ioutil.WriteFile(path, b, 0644)
+	if err != nil {
+		return err
+	}
 	return nil
 }
