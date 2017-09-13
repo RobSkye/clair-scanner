@@ -24,7 +24,6 @@ import (
 	"github.com/coreos/clair/api/v1"
 	"github.com/docker/docker/client"
 	"github.com/fatih/color"
-
 )
 
 const (
@@ -55,9 +54,9 @@ type vulnerabilitiesWhitelist struct {
 }
 
 type vulnerabilityReport struct {
-	date string
-	image string
-	vulnerabilities []vulnerabilityInfo
+	date time.Time `json:"date"`
+	image string `json:"image"`
+	vulnerabilities []vulnerabilityInfo `json:"vulnerabilities"`
 }
 
 func main() {
@@ -376,7 +375,13 @@ func fetchLayerVulnerabilities(clairURL string, layerID string) (v1.Layer, error
 
 func printVulnerabilityReport(vulnerabilities []vulnerabilityInfo) error {
 	log.Println("Printing JSON report")
-	b,_ := json.Marshal(vulnerabilities)
+	date := time.Now()
+	report := vulnerabilityReport{
+		date: date,
+		image: flag.Args()[0],
+		vulnerabilities: vulnerabilities,
+	}
+	b,_ := json.Marshal(report)
 	s := string(b)
 	fmt.Println(s)
 	return nil
