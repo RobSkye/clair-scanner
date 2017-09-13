@@ -24,6 +24,7 @@ import (
 	"github.com/coreos/clair/api/v1"
 	"github.com/docker/docker/client"
 	"github.com/fatih/color"
+
 )
 
 const (
@@ -40,6 +41,7 @@ type vulnerabilityInfo struct {
 	vulnerability string
 	namespace     string
 	severity      string
+	Description   string
 }
 
 type acceptedVulnerability struct {
@@ -50,6 +52,12 @@ type acceptedVulnerability struct {
 type vulnerabilitiesWhitelist struct {
 	GeneralWhitelist map[string]string
 	Images           map[string]map[string]string
+}
+
+type vulnerabilityReport struct {
+	date string
+	image string
+	vulnerabilities []vulnerabilityInfo
 }
 
 func main() {
@@ -120,16 +128,21 @@ func analyzeImage(imageName string, tmpPath string, clairURL string, scannerIP s
 		log.Printf("Analyzing failed: %s", err)
 		return err
 	}
-	err = vulnerabilitiesApproved(imageName, vulnerabilities, whitelist)
+	vulns, err := vulnerabilitiesApproved(imageName, vulnerabilities, whitelist)
 	if err != nil {
-		log.Printf("Image contains unapproved vulnerabilities: %s", err)
+		log.Printf("Image unapproved vulnerabilities: %s", err)
+	}
+	err = printVulnerabilityReport(vulns)
+	if err != nil {
+		log.Printf("Reporting failed: %s", err)
 		return err
 	}
 	return nil
 }
 
-func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityInfo, whitelist vulnerabilitiesWhitelist) error {
+func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityInfo, whitelist vulnerabilitiesWhitelist) ([]vulnerabilityInfo, error) {
 	var unapproved []string
+	var unapprovedVulnerabilities = make([]vulnerabilityInfo, 0)
 	imageVulnerabilities := getImageVulnerabilities(imageName, whitelist.Images)
 
 	for i := 0; i < len(vulnerabilities); i++ {
@@ -146,12 +159,13 @@ func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityIn
 		}
 		if vulnerable {
 			unapproved = append(unapproved, vulnerability)
+			unapprovedVulnerabilities = append(unapprovedVulnerabilities, vulnerabilities[i])
 		}
 	}
-	if len(unapproved) > 0 {
-		return fmt.Errorf("%s", unapproved)
+	if len(unapprovedVulnerabilities) > 0 {
+		return unapprovedVulnerabilities,fmt.Errorf("%s", unapproved)
 	}
-	return nil
+	return nil, fmt.Errorf("%s", "No vulnerabilities found")
 }
 
 func getImageVulnerabilities(imageName string, whitelistImageVulnerabilities map[string]map[string]string) map[string]string {
@@ -329,7 +343,7 @@ func getVulnerabilities(clairURL string, layerIds []string) ([]vulnerabilityInfo
 	for _, feature := range rawVulnerabilities.Features {
 		if len(feature.Vulnerabilities) > 0 {
 			for _, vulnerability := range feature.Vulnerabilities {
-				vulnerability := vulnerabilityInfo{vulnerability.Name, vulnerability.NamespaceName, vulnerability.Severity}
+				vulnerability := vulnerabilityInfo{vulnerability.Name, vulnerability.NamespaceName, vulnerability.Severity, vulnerability.Description}
 				vulnerabilities = append(vulnerabilities, vulnerability)
 			}
 		}
@@ -358,4 +372,12 @@ func fetchLayerVulnerabilities(clairURL string, layerID string) (v1.Layer, error
 	}
 
 	return *apiResponse.Layer, nil
+}
+
+func printVulnerabilityReport(vulnerabilities []vulnerabilityInfo) error {
+	log.Println("Printing JSON report")
+	b,_ := json.Marshal(vulnerabilities)
+	s := string(b)
+	fmt.Println(s)
+	return nil
 }
