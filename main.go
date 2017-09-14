@@ -34,7 +34,6 @@ const (
 	httpPort                   = 9279
 	postLayerURI               = "/v1/layers"
 	getLayerFeaturesURI        = "/v1/layers/%s?vulnerabilities"
-	reportPath                 = "/tmp/result/"
 )
 
 type vulnerabilityInfo struct {
@@ -62,10 +61,14 @@ type vulnerabilityReport struct {
 }
 
 var scanOk bool = true
+var resultPath string = "/tmp/result.json"
 
 func main() {
 	flag.Parse()
 	start(flag.Args()[0], parseWhitelist(flag.Args()[1]), flag.Args()[2], flag.Args()[3])
+	if flag.Args()[4] != "" {
+		resultPath = flag.Args()[4]
+	}
 	if scanOk {
 		os.Exit(success)
 	}
@@ -391,8 +394,7 @@ func printVulnerabilityReport(vulnerabilities []vulnerabilityInfo) error {
 		Vulnerabilities: vulnerabilities,
 	}
 	b, _ := json.MarshalIndent(report, "", "    ")
-	path := fmt.Sprintf("%s/%s.json", reportPath, "clair-report")
-	err := ioutil.WriteFile(path, b, 0644)
+	err := ioutil.WriteFile(resultPath, b, 0644)
 	if err != nil {
 		return err
 	}
