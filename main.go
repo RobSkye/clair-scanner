@@ -61,14 +61,12 @@ type vulnerabilityReport struct {
 }
 
 var scanOk bool = true
-var resultPath string = "/tmp/result.json"
+var resultPath string
 
 func main() {
 	flag.Parse()
 	start(flag.Args()[0], parseWhitelist(flag.Args()[1]), flag.Args()[2], flag.Args()[3])
-	if flag.Args()[4] != "" {
-		resultPath = flag.Args()[4]
-	}
+	resultPath = flag.Args()[4]
 	if scanOk {
 		os.Exit(success)
 	}
