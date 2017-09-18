@@ -24,6 +24,7 @@ import (
 	"github.com/coreos/clair/api/v1"
 	"github.com/docker/docker/client"
 	"github.com/fatih/color"
+
 )
 
 const (
@@ -62,11 +63,41 @@ type vulnerabilityReport struct {
 
 var scanOk bool = true
 var resultPath string
+var image *string
+var severityMap map[string]int
+var severity *string
 
 func main() {
+
+	//Severities description: https://github.com/coreos/clair/blob/master/database/severity.go#L31
+
+	severityMap = make (map[string]int)
+
+	severityMap["Unknown"] = 0
+	severityMap["Negligible"] = 1
+	severityMap["Low"] = 2
+	severityMap["Medium"] = 3
+	severityMap["High"] = 4
+	severityMap["Critical"] = 5
+	severityMap["Defcon1"] = 6
+
+	image = flag.String("image","","RepoTag of image (repository/image:tag)")
+	whitelist:= flag.String("whitelist","whitelist.yaml","Path of the CVE whitelist file")
+	clair:= flag.String("clair","http://localhost:6060","Clair server")
+	scanner:= flag.String("address","localhost","the IPAddress or hostname used by clair-scanner")
+	report:= flag.String("report","report.json","Path where the report will be generated")
+	severity = flag.String("severity","Unknown","Severity threshold. If clair detects a vulnerability with a higher or equal severity, " +
+		"Clair-scanner will exit with return code 1. Can be Unknown,Negligible,Low,Medium,High,Critical,Defcon1")
 	flag.Parse()
-	start(flag.Args()[0], parseWhitelist(flag.Args()[1]), flag.Args()[2], flag.Args()[3])
-	resultPath = flag.Args()[4]
+
+	if *image  == "" {
+		log.Printf("Image undefined. Use -image=repository/name:tag")
+		os.Exit(1)
+	}
+
+	resultPath = *report
+	start(*image, parseWhitelist(*whitelist),*clair,*scanner)
+
 	if scanOk {
 		os.Exit(success)
 	}
@@ -165,9 +196,21 @@ func vulnerabilitiesApproved(imageName string, vulnerabilities []vulnerabilityIn
 			}
 		}
 		if vulnerable {
-			unapproved = append(unapproved, vulnerability)
-			unapprovedVulnerabilities = append(unapprovedVulnerabilities, vulnerabilities[i])
-			scanOk = false
+			var severityCode int
+			var ok bool
+			if vulnerabilities[i].Severity != "" {
+				severityCode, ok = severityMap[vulnerabilities[i].Severity]
+				if !ok {
+					severityCode = 0 //if Severity field is filled with an unconfigured severity, we assume Unknown
+				}
+			} else {
+				severityCode = 0 // if Severity is empty, we assume Unknown
+			}
+			if severityCode >= severityMap[*severity] {
+				unapproved = append(unapproved, vulnerability)
+				unapprovedVulnerabilities = append(unapprovedVulnerabilities, vulnerabilities[i])
+				scanOk = false
+			}
 		}
 	}
 	if len(unapprovedVulnerabilities) > 0 {
@@ -388,7 +431,7 @@ func printVulnerabilityReport(vulnerabilities []vulnerabilityInfo) error {
 	date := time.Now()
 	report := &vulnerabilityReport{
 		Date:            date,
-		Image:           flag.Args()[0],
+		Image:           *image,
 		Vulnerabilities: vulnerabilities,
 	}
 	b, _ := json.MarshalIndent(report, "", "    ")
